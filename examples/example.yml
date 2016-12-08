@@ -1,0 +1,19 @@
+base_uri:
+    - "http://example.com/api/v1"
+    - "http://example.com/api/v2"
+
+cases:
+    -
+        path: resource/101
+        method: GET
+        query:
+            template: full
+        headers:
+            Accept: "application/json"
+            Content-Type: "application/json"
+    -
+        path: resource/101
+        method: POST
+        content: "{\"title\": \"example\"}"
+        headers:
+            Content-Type: "application/json"
