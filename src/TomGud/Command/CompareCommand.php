@@ -47,6 +47,8 @@ class CompareCommand extends Command
             $output->writeln('<info>No cases were found. Stopping</info>');
         }
 
+        $ignore = array_key_exists('ignore', $config) ? $config['ignore'] : [];
+
         foreach ($config['cases'] as $id => $case) {
             $uri = array_key_exists('path', $case) ? $case['path'] : null;
             $method = array_key_exists('method', $case) ? $case['method'] : 'GET';
@@ -79,7 +81,7 @@ class CompareCommand extends Command
                     RequestOptions::SYNCHRONOUS => true
                 ]
             );
-            if (!$this->compareResponses($responseA, $responseB)) {
+            if (!$this->compareResponses($responseA, $responseB, $ignore)) {
                 $output->write(' <error>✗</error>');
             } else {
                 $output->write(' <info>✓</info>');
@@ -113,10 +115,14 @@ class CompareCommand extends Command
     /**
      * @param ResponseInterface $responseA
      * @param ResponseInterface $responseB
+     * @param array $ignore
      * @return bool
      */
-    private function compareResponses(ResponseInterface $responseA, ResponseInterface $responseB) : bool
+    private function compareResponses(ResponseInterface $responseA, ResponseInterface $responseB, array $ignore) : bool
     {
+        $ignoreHeaders = array_key_exists('headers', $ignore) ? $ignore['headers'] : [];
+        $ignoreHtml = array_key_exists('http', $ignore) ? $ignore['http'] : false;
+        $ignoreStatusCode = array_key_exists('status', $ignore) ? $ignore['status'] : false;
         $htmlEquals = $responseA->getBody()->getContents() === $responseB->getBody()->getContents();
         $headersA = $responseA->getHeaders();
         $headersB = $responseB->getHeaders();
@@ -141,8 +147,9 @@ class CompareCommand extends Command
                 $headerDiff[$keyB]['>'] = implode(';', $headerB);
             }
         }
+        $headerDiff = array_diff_key($headerDiff, array_flip($ignoreHeaders));
         $responseCodeEquals = $responseA->getStatusCode() === $responseB->getStatusCode();
-        return $htmlEquals && $responseCodeEquals && count($headerDiff) === 0;
+        return ($ignoreHtml || $htmlEquals) && ($ignoreStatusCode || $responseCodeEquals) && count($headerDiff) === 0;
     }
 
 }

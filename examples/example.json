@@ -3,6 +3,14 @@
         "http://example.com/api/v1",
         "http://example.com/api/v2"
     ],
+    "ignore" : {
+        "html" : false,
+        "status" : true,
+        "headers" : [
+            "Content-Type",
+            "Date"
+        ]
+    },
     "cases" : [
         {
             "path" : "resource/101",
