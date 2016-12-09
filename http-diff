@@ -1,0 +1,22 @@
+#!/usr/bin/env php
+<?php
+
+$autoload = [__DIR__ . '/../../autoload.php', __DIR__ . '/../vendor/autoload.php', __DIR__ . '/vendor/autoload.php'];
+
+foreach ($autoload as $file) {
+    if (file_exists($file)) {
+        require_once $file;
+        break;
+    }
+}
+
+use Symfony\Component\Console\Application;
+use TomGud\Command\CompareCommand;
+
+$application = new Application('http-diff', '1.0.0');
+$command = new CompareCommand();
+
+$application->add($command);
+
+$application->setDefaultCommand($command->getName());
+$application->run();
