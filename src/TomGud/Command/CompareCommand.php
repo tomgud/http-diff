@@ -3,7 +3,6 @@
 namespace TomGud\Command;
 
 use GuzzleHttp\Client as GuzzleClient;
-use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\RequestOptions;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Console\Command\Command;
@@ -11,6 +10,9 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
+use TomGud\Model\HttpIgnore;
+use TomGud\Model\Specification;
+use TomGud\Service\SpecificationParser;
 
 /**
  * Class CompareCommand
@@ -25,63 +27,37 @@ class CompareCommand extends Command
     {
         $this->setName('http:diff')
             ->setDescription('http-diff compares two http responses and reports the difference')
-            ->addArgument('config', InputArgument::REQUIRED, 'Configuration file');
+            ->addArgument('spec', InputArgument::REQUIRED, 'Specification file');
     }
 
     /**
      * @inheritdoc
      * @throws \RuntimeException
+     * @throws \InvalidArgumentException
+     * @throws \Symfony\Component\Yaml\Exception\ParseException
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $config = $this->parseConfigFile($input->getArgument('config'));
+        $specification = $this->parseConfigFile($input->getArgument('spec'));
 
-        if (!isset($config['base_uri']) || !is_array($config['base_uri']) || count($config['base_uri']) !== 2) {
-            throw new \RuntimeException('Base URI\'s are not configured or there are not exactly two of them');
-        }
+        $clientA = new GuzzleClient(['base_uri' => $specification->getBaseUri()[0]]);
+        $clientB = new GuzzleClient(['base_uri' => $specification->getBaseUri()[1]]);
 
-        $clientA = new GuzzleClient(['base_uri' => $config['base_uri'][0]]);
-        $clientB = new GuzzleClient(['base_uri' => $config['base_uri'][1]]);
-
-        if (!isset($config['cases'])) {
-            $output->writeln('<info>No cases were found. Stopping</info>');
-        }
-
-        $ignore = array_key_exists('ignore', $config) ? $config['ignore'] : [];
-
-        foreach ($config['cases'] as $id => $case) {
-            $uri = array_key_exists('path', $case) ? $case['path'] : null;
-            $method = array_key_exists('method', $case) ? $case['method'] : 'GET';
-            $query = array_key_exists('query', $case) ? $case['query'] : [];
-            $headers = array_key_exists('headers', $case) ? $case['headers'] : [];
-            $content = array_key_exists('content', $case) ? $case['content'] : null;
-
-            if ($uri === null) {
+        foreach ($specification->getCase() as $id => $case) {
+            if ($case->getUri() === null) {
                 $output->writeln('<info>Ignoring case ' . $id . ' with no path</info>');
                 continue;
             }
-            $output->write('[' . $id . '] Comparing ' . $method . ' ' . $uri . '');
-            $responseA = $clientA->request(
-                $method,
-                $uri,
-                [
-                    RequestOptions::QUERY => $query,
-                    RequestOptions::HEADERS => $headers,
-                    RequestOptions::BODY => $content,
-                    RequestOptions::SYNCHRONOUS => true
-                ]
-            );
-            $responseB = $clientB->request(
-                $method,
-                $uri,
-                [
-                    RequestOptions::QUERY => $query,
-                    RequestOptions::HEADERS => $headers,
-                    RequestOptions::BODY => $content,
-                    RequestOptions::SYNCHRONOUS => true
-                ]
-            );
-            if (!$this->compareResponses($responseA, $responseB, $ignore)) {
+            $output->write('[' . $id . '] Comparing ' . $case->getMethod() . ' ' . $case->getUri() . '');
+            $options = [
+                RequestOptions::QUERY => $case->getQuery(),
+                RequestOptions::HEADERS => $case->getHeaders(),
+                RequestOptions::BODY => $case->getBody(),
+                RequestOptions::SYNCHRONOUS => true
+            ];
+            $responseA = $clientA->request($case->getMethod(), $case->getUri(), $options);
+            $responseB = $clientB->request($case->getMethod(), $case->getUri(), $options);
+            if (!$this->compareResponses($responseA, $responseB, $specification->getIgnore())) {
                 $output->write(' <error>✗</error>');
             } else {
                 $output->write(' <info>✓</info>');
@@ -92,11 +68,11 @@ class CompareCommand extends Command
 
     /**
      * @param string $filename
-     * @return array
+     * @return Specification
      * @throws \Symfony\Component\Yaml\Exception\ParseException
      * @throws \InvalidArgumentException
      */
-    private function parseConfigFile(string $filename) : array
+    private function parseConfigFile(string $filename)
     {
         if (!file_exists($filename)) {
             throw new \InvalidArgumentException('File not found : ' . $filename);
@@ -104,25 +80,24 @@ class CompareCommand extends Command
 
         $contents = file_get_contents($filename);
         if (strpos($filename, 'json') === strlen($filename) - 4) {
-            return json_decode($contents, true);
+            $decodedContent = json_decode($contents, true);
         } elseif(strpos($filename, 'yml') === strlen($filename) - 3) {
-            return Yaml::parse($contents);
+            $decodedContent = Yaml::parse($contents);
         } else {
             throw new \InvalidArgumentException('File format not supported, json and yml only');
         }
+        $parser = new SpecificationParser($decodedContent);
+        return $parser->parse();
     }
 
     /**
      * @param ResponseInterface $responseA
      * @param ResponseInterface $responseB
-     * @param array $ignore
+     * @param HttpIgnore $ignore
      * @return bool
      */
-    private function compareResponses(ResponseInterface $responseA, ResponseInterface $responseB, array $ignore) : bool
+    private function compareResponses(ResponseInterface $responseA, ResponseInterface $responseB, $ignore)
     {
-        $ignoreHeaders = array_key_exists('headers', $ignore) ? $ignore['headers'] : [];
-        $ignoreHtml = array_key_exists('http', $ignore) ? $ignore['http'] : false;
-        $ignoreStatusCode = array_key_exists('status', $ignore) ? $ignore['status'] : false;
         $htmlEquals = $responseA->getBody()->getContents() === $responseB->getBody()->getContents();
         $headersA = $responseA->getHeaders();
         $headersB = $responseB->getHeaders();
@@ -147,9 +122,13 @@ class CompareCommand extends Command
                 $headerDiff[$keyB]['>'] = implode(';', $headerB);
             }
         }
-        $headerDiff = array_diff_key($headerDiff, array_flip($ignoreHeaders));
+        $headerDiff = array_diff_key($headerDiff, array_flip($ignore->getHeaders()));
         $responseCodeEquals = $responseA->getStatusCode() === $responseB->getStatusCode();
-        return ($ignoreHtml || $htmlEquals) && ($ignoreStatusCode || $responseCodeEquals) && count($headerDiff) === 0;
+
+        return
+            ($ignore->isHtml()|| $htmlEquals) &&
+            ($ignore->isStatusCode() || $responseCodeEquals) &&
+            count($headerDiff) === 0;
     }
 
 }
