@@ -10,6 +10,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
+use TomGud\Model\ClearCache;
 use TomGud\Model\HttpIgnore;
 use TomGud\Model\Specification;
 use TomGud\Service\SpecificationParser;
@@ -49,9 +50,12 @@ class CompareCommand extends Command
                 continue;
             }
             $output->write('[' . $id . '] Comparing ' . $case->getMethod() . ' ' . $case->getUri() . '');
+            $headers = $specification->isClearCache() ?
+                array_merge($case->getHeaders(), ClearCache::HEADER) :
+                $case->getHeaders();
             $options = [
                 RequestOptions::QUERY => $case->getQuery(),
-                RequestOptions::HEADERS => $case->getHeaders(),
+                RequestOptions::HEADERS => $headers,
                 RequestOptions::BODY => $case->getBody(),
                 RequestOptions::SYNCHRONOUS => true
             ];
