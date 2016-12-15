@@ -1,3 +1,4 @@
+clear_cache: false
 base_uri:
     - "http://example.com/api/v1"
     - "http://example.com/api/v2"
