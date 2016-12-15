@@ -37,10 +37,20 @@ class SpecificationParser
      */
     public function parse()
     {
+        $this->parseClearCache();
         $this->parseBaseUri();
         $this->parseIgnore();
         $this->parseCases();
         return $this->specification;
+    }
+
+    private function parseClearCache()
+    {
+        $this->specification->setClearCache(
+            !isset($this->specificationInput['cache_clear'])
+            ? $this->specificationInput['cache_clear']
+            : true
+        );
     }
 
     private function parseBaseUri()
